@@ -1,7 +1,7 @@
 import { data } from 'autoprefixer';
 import { getApps, initializeApp } from 'firebase/app'
 import { getAuth, signInWithPopup, GithubAuthProvider } from 'firebase/auth'
-import { getFirestore, addDoc, collection, Timestamp, getDocs, query, orderBy } from 'firebase/firestore'
+import { getFirestore, addDoc, collection, Timestamp, getDocs, query, orderBy, limit, onSnapshot } from 'firebase/firestore'
 import { getStorage, ref, uploadBytesResumable } from 'firebase/storage'
 
 const firebaseConfig = {
@@ -57,7 +57,8 @@ const loginWithGitHub = async () => {
 
 }
 
-const addDevit = async ({ avatar, content, userName, userID }, status) => {
+// Insert a new devit in the db
+const addDevit = async ({ avatar, content, userName, userID, imagesData }) => {
 
   try {
     const ref = await addDoc(collection(db, 'devits'), {
@@ -65,6 +66,7 @@ const addDevit = async ({ avatar, content, userName, userID }, status) => {
       userName,
       content,
       avatar,
+      imagesData,
       createdAt: Timestamp.fromDate(new Date),
       likesCount: 0,
       sharedCount: 0
@@ -77,25 +79,45 @@ const addDevit = async ({ avatar, content, userName, userID }, status) => {
 
 }
 
+// Maping the data to the devits
+const mapDevitsData = (doc) => {
+  let data = doc.data()
+
+  // It´s necesary to convert timestamp to date and next to string
+  return {
+    ...data,
+    // toLocaleString() show only the date and the hour that the devit was created
+    /*  createdAt: data?.createdAt.toDate().toLocaleString(), */
+    createdAt: +data?.createdAt.toDate(),
+    id: doc.id,
+    time: data?.createdAt.toDate().toLocaleString()
+  }
+}
+
+// Get all the devits in the collection and return to render in the page home
 const getDevits = async () => {
 
   const refDevits = collection(db, 'devits')
   const devitsSnapshot = await getDocs(query(refDevits, orderBy('createdAt', 'desc')))
 
-  return devitsSnapshot.docs.map(doc => {
 
-    let data = doc.data()
+  return devitsSnapshot.docs.map(mapDevitsData)
+}
 
-    // It´s necesary to convert timestamp to date and next to string
-    return {
-      ...data,
-      // toLocaleString() show only the date and the hour that the devit was created
-      /*  createdAt: data?.createdAt.toDate().toLocaleString(), */
-      createdAt: +data?.createdAt.toDate(),
-      id: doc.id
-    }
+const listenDevits = async (callback) => {
 
+  const refDevits = collection(db, 'devits')
+  const q = query(refDevits, orderBy('createdAt', 'desc'), limit(10))
+
+  // Initialize an observer in the database for the new devits
+  const devitsSnapshot = await onSnapshot(q, ({ docs }) => {
+
+    // Every time that and user add a devit this function is executed
+    const devits = docs.map(mapDevitsData)
+    callback(devits)
   })
+  
+  return devitsSnapshot
 }
 
 const uploadImages = (file) => {
@@ -108,4 +130,6 @@ const uploadImages = (file) => {
 
 }
 
-export { loginWithGitHub, stateAuth, addDevit, getDevits, uploadImages }
+
+
+export { loginWithGitHub, stateAuth, addDevit, getDevits, listenDevits, uploadImages }

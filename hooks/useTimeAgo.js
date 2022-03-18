@@ -43,6 +43,8 @@ const useTimeAgo = (timestamp) => {
       setTimeago(newTimeAgo)
     }, 300000);
 
+    // When the component is demount it´s obligatory clear the interval
+    // If not the interval continues to run altough the component is demount
     return () => clearInterval(interval)
 
   }, [timestamp])

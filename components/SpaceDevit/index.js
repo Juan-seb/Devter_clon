@@ -6,6 +6,8 @@ import Image from 'next/image'
 import Link from 'next/link'
 import useUser from 'hooks/useUser'
 import ImagePreview from 'components/ImagePreview'
+import { getDownloadURL } from 'firebase/storage'
+import { getAllUrls } from 'helpers/getAllUrls'
 
 const STATES_DEVIT = {
   creating: 'creating',
@@ -29,69 +31,88 @@ const SpaceDevit = ({ src, alt }) => {
   const router = useRouter()
   const [message, setMessage] = useState('')
   const [statusDevit, setStatusDevit] = useState(STATES_DEVIT.creating)
-  const [image, setImage] = useState(null)
+  // Save the files of the image that can obtain before use the events of the drag and drop
+  const [imageFile, setImageFile] = useState(null)
+  // Use this to save the url that generate for the previewURL
   const [previewURL, setPreviewURL] = useState(null)
+  // Save the status of the drag and drop
   const [drag, setDrag] = useState(DRAG_IMAGE_STATES.NONE)
-  const [task, setTask] = useState(null)
-  const [imgURL, setImgURL] = useState(null)
+  // Save the tasks that return with the method uploadImages (client.js)
+  const [tasks, setTasks] = useState(null)
+  // Save the sizes of the images
+  const [sizes, setSizes] = useState([])
 
   useEffect(() => {
-    if (task) {
-      task.on('state_changed',
-      (snapshot) => {
-        // Observe state change events such as progress, pause, and resume
-        // Get task progress, including the number of bytes uploaded and the total number of bytes to be uploaded
-        const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-        console.log('Upload is ' + progress + '% done');
-        switch (snapshot.state) {
-          case 'paused':
-            console.log('Upload is paused');
-            break;
-          case 'running':
-            console.log('Upload is running');
-            break;
-        }
-      },
-      (error) => {
-        // Handle unsuccessful uploads
-      },
-      () => {
-        // Handle successful uploads on complete
-        // For instance, get the download URL: https://firebasestorage.googleapis.com/...
-        
-      }
-    );
+
+    const taskFiles = []
+
+    if (imageFile?.length > 0) {
+      // imageFile save the file of each image 
+      imageFile?.forEach(file => {
+        console.log("image")
+
+        // Save the uploadTask that return with the method uploadImages in fileUpload
+        const fileUpload = uploadImages(file)
+        // Save fileUpload in taskFiles
+        taskFiles = [...taskFiles, fileUpload]
+
+      })
     }
-  }, [task])
+
+    setTasks(taskFiles)
+
+  }, [imageFile])
+
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    setStatusDevit(STATES_DEVIT.complete)
 
+    // If the message is empty then return
     if (message.length === 0) return
 
+    setStatusDevit(STATES_DEVIT.complete)
+
+    // getAllUrls obtain the urls of the images that uploaded in the db, return an array of promises
+    const arrayPromises = getAllUrls(tasks)
+    // Obtain the user information
     const { displayName, photoURL, uid } = user
+    
+    // Pass the arrayPromises to Promise.all and when the promises are resolved then return and array of objects, each of which contains the url and the name of the image
+    // In this way I can use addDevit and add the data of the images
+    // Avoid unnecessary calls to the db to eliminate images (this can happen if i save the images in a useEffect)
+    Promise.all(arrayPromises).then(res => {
+      console.log(res)
 
-    addDevit({
-      avatar: photoURL,
-      content: message,
-      userName: displayName,
-      userID: uid
-    }).then(() => {
-      // If the operation is successful then redirect to HOME
+      const resNewData = res.map((el,index) => {
+        return {
+          ...el,
+          width: sizes[index].width,
+          height: sizes[index].height
+        }
+      })
 
-      setTimeout(() => {
-        router.push('/home')
-      }, 0)
+      addDevit({
+        avatar: photoURL,
+        content: message,
+        userName: displayName,
+        userID: uid,
+        imagesData: resNewData.length !== 0 ? resNewData : null
+      }).then(() => {
+        // If the operation is successful then redirect to HOME
+        setTimeout(() => {
+          router.push('/home')
+        }, 0)
 
-    }).catch(() => {
-      setStatusDevit(STATES_DEVIT.error)
+      }).catch(() => {
+        setStatusDevit(STATES_DEVIT.error)
+      })
     })
 
   }
 
   const handleDragEnter = (e) => {
     e.preventDefault()
+    // With this state i can style the textarea.
     setDrag(DRAG_IMAGE_STATES.DRAG_OVER)
   }
 
@@ -100,45 +121,51 @@ const SpaceDevit = ({ src, alt }) => {
     setDrag(DRAG_IMAGE_STATES.NONE)
   }
 
+  // Generate previewURLs and verify the extension of the files
+  // Runs only when drop the files
   const handleDrop = (e) => {
     e.preventDefault()
 
+    // Regex pattern to validate the file extension
     let regexFiles = /^.*\.(jpg|JPG|gif|GIF|png|PNG)$/
+    // Save in data all the object of the files
     const data = e.dataTransfer.files
     const imageFiles = []
     const imageURL = []
-    
-    /* const taskResult = uploadImages(e.dataTransfer.files[0])
 
-    setTask(taskResult) */
-    
-    // If the lenght of the files is greather than four the return.
-    if (data.length > 4) {
+    // Validate that the files to be uploaded are less than four or four
+    if (Object.keys(data).length > 4) {
       setDrag(DRAG_IMAGE_STATES.MAX_CAPACITY)
       return
     }
 
-    for (const key in data) {
+    // Converts the data object to an array and for each element ->
+    Object.values(data).forEach((file) => {
 
-      const file = data[key]
-
-      // Validate that the file is allowed otherwise is not allowed to continue
-      if (!regexFiles.exec(file.name)){
-        setDrag(DRAG_IMAGE_STATES.MAX_CAPACITY)
+      // Validate the extension file
+      if (!regexFiles.test(file.name)) {
+        console.log("Entro")
+        imageFiles = []
+        imageURL = []
+        setDrag(DRAG_IMAGE_STATES.ERROR_FILES)
         return
       }
 
+      // Generates the previewURL for the file that was dropped
+      // Really generates an url
       const fileURL = URL.createObjectURL(file)
 
+      // Save the file object in imagesFiles
       imageFiles = [...imageFiles, file]
+      // Save the previewURL in imageURL
       imageURL = [...imageURL, fileURL]
 
-      setImage(imageFiles)
-      setPreviewURL(imageURL)
+    })
 
-      console.log(file)
-
-    }
+    // This state is for save all files objects that were dropped, all are validate
+    setImageFile(imageFiles)
+    // This state is for save all previewURL to after show in the client
+    setPreviewURL(imageURL)
 
     setDrag(DRAG_IMAGE_STATES.NONE)
   }
@@ -153,7 +180,7 @@ const SpaceDevit = ({ src, alt }) => {
   }
 
   return (
-    <article className="flex px-4">
+    <article className="flex px-4 my-4">
       {/*  <header className="w-full h-10">
         <Link href="/home">Volver al home</Link>
       </header> */}
@@ -177,12 +204,12 @@ const SpaceDevit = ({ src, alt }) => {
           value={message}
           name='message'
           placeholder='¿Que estas pensando?'
-          className={`w-full h-24 border-0 outline-0 bg-transparent rounded-lg my-1 resize-none ${stylesTextArea}`}
+          className={`w-full h-24 border-0 outline-0 bg-transparent rounded-lg resize-none ${stylesTextArea}`}
         ></textarea>
         <section className="flex flex-wrap mb-2">
           {
-            previewURL?.map((url, index)=>(
-              <ImagePreview key={index} url={url} />
+            previewURL?.map((url, index) => (
+              <ImagePreview key={index} url={url} sizes = {sizes} setSizes = {setSizes} />
             ))
           }
         </section>

@@ -1,13 +1,11 @@
-import { getDevits } from '@fbs/client'
+import { listenDevits } from '@fbs/client'
 import { useState, useEffect } from 'react'
-import Avatar from "components/Avatar"
 import Devit from "components/Devit"
+import Head from 'next/head'
 import Header from "components/LayoutPage/Header"
 import LayoutPage from "components/LayoutPage"
-import Link from 'next/link'
 import Nav from "components/LayoutPage/Nav"
 import useUser from 'hooks/useUser'
-import Head from 'next/head'
 
 // I can bring the devits with the getServerSideProps (server) or in the client with the useEffect
 const HomePage = (/* { devitsDB } */) => {
@@ -20,21 +18,16 @@ const HomePage = (/* { devitsDB } */) => {
 
 	useEffect(() => {
 
-		const getData = async () => {
-			try {
-				/* const res = await fetch('http://localhost:3000/api/statuses/home_timeline')
-				const json = res.ok ? res.json() : Promise.reject('Error')
-				const data = await json */
-				const data = await getDevits()
-
-				setDevits(data)
-			} catch (error) {
-				console.log(error)
-			}
-		}
+		let unsubscribe
+		// The method getDevits was replaced with listenDevits
 
 		// If the user is authenticated then loading the devits
-		user && getData()
+		if (user) {
+			// listenDevits return a promise
+			unsubscribe = listenDevits(setDevits)
+		}
+
+		return () => unsubscribe && unsubscribe.then(res => res())
 
 	}, [user])
 
@@ -48,9 +41,12 @@ const HomePage = (/* { devitsDB } */) => {
 				{devits.map((devit) => (
 					<Devit
 						key={devit.id}
+						id = {devit.id}
 						src={devit.avatar}
 						alt={devit.userName}
+						imgsData = {devit.imagesData}
 						createdAt={devit.createdAt}
+						time = {devit.time}
 						userName={devit.userName}
 						content={devit.content}
 					/>
